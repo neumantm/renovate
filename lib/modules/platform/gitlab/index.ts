@@ -58,6 +58,7 @@ import {
   isUserBusy,
 } from './http.ts';
 import { getMR, updateMR } from './merge-request.ts';
+import { shouldUseMergeTrain, addToMergeTrain, addToMergeTrainWhenPipelineSucceeds } from './merge-train.ts';
 import { GitlabPrCache } from './pr-cache.ts';
 import type { GitLabMergeRequest } from './schema.ts';
 import { LastPipelineId } from './schema.ts';
@@ -643,6 +644,11 @@ async function tryPrAutomerge(
       // returns a 405 Method Not Allowed. It seems to be a timing issue within Gitlab.
       for (let attempt = 1; attempt <= retryTimes; attempt += 1) {
         try {
+          if (shouldUseMergeTrain(config.mergeTrainsEnabled)) {
+            await addToMergeTrainWhenPipelineSucceeds(config.repository, pr);
+            break;
+          }
+
           await gitlabApi.putJson(
             `projects/${config.repository}/merge_requests/${pr}/merge`,
             {
@@ -809,6 +815,10 @@ export async function reattemptPlatformAutomerge({
 
 export async function mergePr({ id }: MergePRConfig): Promise<boolean> {
   try {
+    if (shouldUseMergeTrain(config.mergeTrainsEnabled)) {
+      await addToMergeTrain(config.repository, id);
+      return true;
+    }
     await gitlabApi.putJson(
       `projects/${config.repository}/merge_requests/${id}/merge`,
       {

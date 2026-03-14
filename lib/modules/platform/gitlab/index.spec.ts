@@ -3754,6 +3754,53 @@ describe('modules/platform/gitlab/index', () => {
         'Skipping automerge retry - merge_when_pipeline_succeeds already enabled',
       );
     });
+
+    it('should add to merge train when pipeline succeeds when merge trains are enabled', async () => {
+      process.env.RENOVATE_X_GITLAB_USE_MERGE_TRAIN_WHEN_AVAILABLE = 'true';
+      await initPlatform('13.3.6-ee');
+      await initRepo(
+        {
+          repository: 'some/repo/project',
+        },
+        {
+          default_branch: 'master',
+          http_url_to_repo: null,
+          merge_method: 'ff',
+          merge_trains_enabled: true,
+        },
+      );
+      httpMock
+        .scope(gitlabApiHost)
+        .get('/api/v4/projects/some%2Frepo%2Fproject/merge_requests/12345')
+        .reply(200, {
+          merge_status: 'can_be_merged',
+          detailed_merge_status: 'ci_still_running',
+          pipeline: {
+            status: 'running',
+          },
+          sha: 'abc123',
+        })
+        .get('/api/v4/projects/some%2Frepo%2Fproject/merge_requests/12345?include_diverged_commits_count=1')
+        .reply(200, {
+          merge_status: 'can_be_merged',
+          detailed_merge_status: 'ci_still_running',
+          pipeline: {
+            status: 'running',
+          },
+          sha: 'abc123',
+        })
+        .post('/api/v4/projects/some%2Frepo%2Fproject/merge_trains/merge_requests/12345', {
+          sha: 'abc123',
+          auto_merge: true,
+        })
+        .reply(200);
+
+      await expect(gitlab.reattemptPlatformAutomerge?.(pr)).toResolve();
+
+      expect(logger.logger.debug).toHaveBeenLastCalledWith(
+        'PR platform automerge re-attempted...prNo: 12345',
+      );
+    });
   });
 
   describe('mergePr(pr)', () => {
